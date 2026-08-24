@@ -29,7 +29,6 @@ class ConfigModal(discord.ui.Modal, title="実績送信データの設定変更"
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
-        # 現在の設定値をデフォルト値に設定
         self.product_name_input.default = self.cog.product_name
         self.win_msg_input.default = self.cog.win_text
         self.lose_msg_input.default = self.cog.lose_text
@@ -119,20 +118,21 @@ class FakeNotice(commands.Cog):
         embed.add_field(name="購入数", value=f"` {self.item_count} `", inline=False)
         embed.add_field(name="購入サーバー", value=f"` {self.target_guild.name} `", inline=False)
         embed.add_field(name="購入者", value=buyer_mention, inline=False)
-        embed.add_field(name="\u200b", value=result_text, inline=False) # ラベルなしで下部に表示
+        embed.add_field(name="\u200b", value=result_text, inline=False)
 
         try:
             await self.target_channel.send(content="📢📢**購入のお知らせ**📢📢", embed=embed)
         except Exception as e:
             print(f"実績メール送信エラー: {e}")
 
+    # コマンド名を "bot_start" に指定しつつ、Pythonの関数名は "start_bot" に変更
     @app_commands.command(name="bot_start", description="実績メールの20秒間隔自動送信を開始します")
     @app_commands.describe(
         category="カテゴリ指定",
         channel="実績メールを送信するチャンネル"
     )
     @app_commands.checks.has_permissions(administrator=True)
-    async def bot_start(
+    async def start_bot(
         self,
         interaction: discord.Interaction,
         category: discord.CategoryChannel,
@@ -141,13 +141,11 @@ class FakeNotice(commands.Cog):
         self.target_channel = channel
         self.target_guild = interaction.guild
 
-        # タスク開始
         if self.send_notice_task.is_running():
             self.send_notice_task.restart()
         else:
             self.send_notice_task.start()
 
-        # 実行した本人だけに表示される管理パネル（ephemeral=True）
         panel_embed = discord.Embed(
             title="🛠️ 実績自動送信 コントロールパネル",
             description=(
