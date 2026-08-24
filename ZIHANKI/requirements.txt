@@ -1,0 +1,8 @@
+discord.py
+python-dotenv
+aiohttp
+useragent-changer
+Flask
+gunicorn
+cryptography
+pytz
